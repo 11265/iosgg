@@ -1,5 +1,5 @@
 #import <UIKit/UIKit.h>
-#import "Services/Scanner/SignatureScanner.h"
+#import "Modules/Scanner/SignatureScanner.h"
 
 @interface SSSignaturePopViewController : UIViewController
 

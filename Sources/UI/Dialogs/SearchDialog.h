@@ -1,5 +1,5 @@
 #import <UIKit/UIKit.h>
-#import "Constants/NotificationNames.h"
+#import "Core/Constants/NotificationNames.h"
 
 @interface SSSearchPopViewController : UIViewController
 

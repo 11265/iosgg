@@ -1,5 +1,5 @@
 #import "UI/Dialogs/RegisterStateDialog.h"
-#import "Services/Debugger/SSDebugger.h"
+#import "Modules/Debugger/SSDebugger.h"
 #import "Services/LogService.h"
 
 @interface SSRegisterCell : UITableViewCell

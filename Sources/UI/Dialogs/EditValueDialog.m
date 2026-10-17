@@ -2,11 +2,11 @@
 #import "Services/LogService.h"
 #import <objc/runtime.h>
 #import <mach/mach.h>
-#import "UI/Pages/SearchPage.h"
-#import "UI/Pages/TracePage.h"
-#import "UI/Pages/TracePage+Debugger.h"
-#import "UI/Pages/MemoryPage.h"
-#import "UI/Pages/RecordPage.h"
+#import "UI/Pages/Scanner/SearchPage.h"
+#import "UI/Pages/Debugger/TracePage.h"
+#import "UI/Pages/Debugger/TracePage+Debugger.h"
+#import "UI/Pages/Memory/MemoryPage.h"
+#import "UI/Pages/Record/RecordPage.h"
 #import "UI/Components/FloatingWindow.h"
 
 NSString *const kModifyValueNotification = @"ModifyValueNotification";

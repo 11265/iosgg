@@ -1,7 +1,7 @@
 #import <UIKit/UIKit.h>
 
 // 引入搜索数据类型枚举
-#import "Services/Scanner/Scanner.h"
+#import "Modules/Scanner/Scanner.h"
 
 // 声明通知常量
 extern NSString *const kModifyValueNotification;

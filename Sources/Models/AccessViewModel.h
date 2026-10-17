@@ -1,5 +1,5 @@
 #import <Foundation/Foundation.h>
-#import "Services/Debugger/SSDebugger.h"
+#import "Modules/Debugger/SSDebugger.h"
 
 NS_ASSUME_NONNULL_BEGIN
 

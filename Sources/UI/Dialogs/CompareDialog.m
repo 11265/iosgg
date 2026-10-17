@@ -1,6 +1,6 @@
 #import "UI/Dialogs/CompareDialog.h"
 #import "Services/LogService.h"
-#import "Services/Scanner/Scanner.h"
+#import "Modules/Scanner/Scanner.h"
 #import "UI/Dialogs/SearchDialog.h"
 
 @interface SSComparePopViewController () <UITextFieldDelegate>

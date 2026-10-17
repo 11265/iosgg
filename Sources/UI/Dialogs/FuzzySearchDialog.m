@@ -1,6 +1,6 @@
 #import "UI/Dialogs/FuzzySearchDialog.h"
 #import "Services/LogService.h"
-#import "Services/Scanner/Scanner.h"
+#import "Modules/Scanner/Scanner.h"
 
 @interface SSHelpPopViewController ()
 

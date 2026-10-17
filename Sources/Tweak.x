@@ -1,8 +1,13 @@
 #import "UI/Components/FloatingWindow.h"
-#import "Services/LogService.h"
-#import "Services/Remote/MCPBridge.h"
 #import "UI/Components/DraggableView.h"
-#import "UI/Pages/BreakpointHitPresenter.h"
+#import "Services/LogService.h"
+#import "Core/Module/SSModuleManager.h"
+#import "Modules/ProcessInfo/SSProcessInfoModule.h"
+#import "Modules/Scanner/SSScannerModule.h"
+#import "Modules/MemoryAnalysis/SSMemoryAnalysisModule.h"
+#import "Modules/Debugger/SSDebuggerModule.h"
+#import "Modules/Remote/SSRemoteModule.h"
+#import "UI/Pages/System/BreakpointHitPresenter.h"
 
 %hook UIApplication
 
@@ -53,11 +58,19 @@
 
 %ctor {
     [LoggingService log:@"Tweak 开始加载..."];
+
+    // 注册所有功能模块（基础层先注册）
+    SSModuleManager *mgr = [SSModuleManager shared];
+    [mgr registerModule:[SSProcessInfoModule shared]];
+    [mgr registerModule:[SSScannerModule shared]];
+    [mgr registerModule:[SSMemoryAnalysisModule shared]];
+    [mgr registerModule:[SSDebuggerModule shared]];
+    [mgr registerModule:[SSRemoteModule shared]];
+    [mgr startAllModules];
+
     [[SSBreakpointHitPresenter sharedInstance] start];
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(2.0 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
         [LoggingService log:@"延迟2秒后尝试创建窗口"];
         [[FloatingWindow sharedInstance] show];
-        // MCP 调试桥：一行一个 JSON 的 TCP 服务，PC 侧 MCP 服务器连过来
-        [[SSMCPBridge sharedInstance] startOnPort:27801];
     });
 }

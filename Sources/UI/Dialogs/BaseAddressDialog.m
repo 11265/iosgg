@@ -2,7 +2,7 @@
 #import "Services/LogService.h"
 #import <mach/mach.h>
 #import <mach-o/dyld.h>
-#import "Services/ProcessMemory.h"
+#import "Modules/ProcessInfo/ProcessMemory.h"
 #import "Services/LogService.h"
 
 

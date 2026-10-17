@@ -1,8 +1,8 @@
 #import "UI/Dialogs/SearchDialog.h"
 #import <objc/runtime.h>
-#import "Services/Scanner/Scanner.h"
+#import "Modules/Scanner/Scanner.h"
 #import "Services/LogService.h"
-#import "UI/Pages/SearchPage.h"
+#import "UI/Pages/Scanner/SearchPage.h"
 
 // 定义搜索模式枚举
 typedef NS_ENUM(NSInteger, SearchMode) {
@@ -29,8 +29,8 @@ typedef NS_ENUM(NSInteger, SearchMode) {
 
 @implementation SSSearchPopViewController
 
-static void searchResultCallback(uint64_t* results, size_t count, SearchDataType type) {
-    [LoggingService log:@"搜索回调被触发 - 结果数量: %zu, 类型: %d", count, type];
+static void searchResultCallback(uint64_t* results, size_t count, size_t totalCount, SearchDataType type) {
+    [LoggingService log:@"搜索回调被触发 - 回传: %zu / 命中: %zu, 类型: %d", count, totalCount, type];
     
     // 获取当前的 SearchPage 实例
     SearchPage *searchVC = [FloatingWindow sharedInstance].searchViewController;
@@ -47,7 +47,7 @@ static void searchResultCallback(uint64_t* results, size_t count, SearchDataType
     
     // 直接调用更新方法，传递数据类型
     dispatch_async(dispatch_get_main_queue(), ^{
-        [searchVC updateSearchResults:addresses withType:type];
+        [searchVC updateSearchResults:addresses totalCount:totalCount withType:type];
     });
 }
 
@@ -123,7 +123,7 @@ static void searchResultCallback(uint64_t* results, size_t count, SearchDataType
 
     // 初始化按钮数组
     self.typeButtons = [NSMutableArray array];
-    NSArray *types = @[@"i8", @"i16", @"i32", @"i64", @"f32", @"f64", @"ptr"];
+    NSArray *types = @[@"i8", @"i16", @"i32", @"i64", @"f32", @"f64"];
 
     // 计算实际可用宽度（容器宽度为220.0f）
     CGFloat containerWidth = 220.0f;
@@ -172,9 +172,6 @@ static void searchResultCallback(uint64_t* results, size_t count, SearchDataType
             break;
         case SearchDataTypeF64:
             buttonIndex = 5;
-            break;
-        case SearchDataTypePtr:
-            buttonIndex = 6;
             break;
         default:
             buttonIndex = 2; // 默认 i32
@@ -422,9 +419,6 @@ static void searchResultCallback(uint64_t* results, size_t count, SearchDataType
         case SearchDataTypeF64:
             dataType = 类型_双精度;
             break;
-        case SearchDataTypePtr:
-            dataType = 类型_指针;
-            break;
         default:
             dataType = 类型_整数;
             break;
@@ -461,10 +455,6 @@ static void searchResultCallback(uint64_t* results, size_t count, SearchDataType
                 searchValue.range_i.min = [[rangeComponents objectAtIndex:0] intValue] & 0xFFFF;
                 searchValue.range_i.max = [[rangeComponents objectAtIndex:1] intValue] & 0xFFFF;
                 break;
-            case 类型_指针:
-                searchValue.range_l.min = [[rangeComponents objectAtIndex:0] longLongValue];
-                searchValue.range_l.max = [[rangeComponents objectAtIndex:1] longLongValue];
-                break;
         }
         
         // 根据当前搜索模式执行搜索
@@ -493,16 +483,6 @@ static void searchResultCallback(uint64_t* results, size_t count, SearchDataType
             case 类型_短整数:
                 searchValue.s = [searchText intValue] & 0xFFFF;
                 break;
-            case 类型_指针: {
-                NSString *hexStr = [searchText lowercaseString];
-                if ([hexStr hasPrefix:@"0x"]) {
-                    hexStr = [hexStr substringFromIndex:2];
-                }
-                unsigned long long hexValue;
-                [[NSScanner scannerWithString:hexStr] scanHexLongLong:&hexValue];
-                searchValue.l = hexValue;
-                break;
-            }
         }
         
         // 根据当前搜索模式执行搜索
@@ -588,9 +568,6 @@ static void searchResultCallback(uint64_t* results, size_t count, SearchDataType
             break;
         case 5:  // f64
             [ScannerState shared].currentDataType = SearchDataTypeF64;
-            break;
-        case 6:  // ptr
-            [ScannerState shared].currentDataType = SearchDataTypePtr;
             break;
         default:
             [ScannerState shared].currentDataType = SearchDataTypeI32;

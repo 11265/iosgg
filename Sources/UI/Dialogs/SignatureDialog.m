@@ -1,7 +1,7 @@
 #import "UI/Dialogs/SignatureDialog.h"
-#import "Services/Scanner/SignatureScanner.h"
+#import "Modules/Scanner/SignatureScanner.h"
 #import "Services/LogService.h"
-#import "UI/Pages/SearchPage.h"
+#import "UI/Pages/Scanner/SearchPage.h"
 
 // 添加搜索回调函数
 static void searchResultCallback(uint64_t* results, size_t count) {

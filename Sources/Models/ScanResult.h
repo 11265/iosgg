@@ -1,5 +1,5 @@
 #import <Foundation/Foundation.h>
-#import "Services/Scanner/Scanner.h"
+#import "Modules/Scanner/Scanner.h"
 
 NS_ASSUME_NONNULL_BEGIN
 
