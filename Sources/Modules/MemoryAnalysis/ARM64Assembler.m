@@ -11,9 +11,20 @@
 
 static csh _capstoneHandle = 0;
 static dispatch_once_t _capstoneOnceToken;
+/// Capstone 的 handle 不支持并发调用：MemoryPage 的后台反汇编与检查器的主线程反汇编会撞上
+static NSObject *_capstoneLock = nil;
+
+static NSString *SSRegisterName(unsigned int reg) {
+    if (reg == ARM64_REG_INVALID || _capstoneHandle == 0) {
+        return nil;
+    }
+    const char *name = cs_reg_name(_capstoneHandle, reg);
+    return name ? [NSString stringWithUTF8String:name] : nil;
+}
 
 + (void)initializeCapstone {
     dispatch_once(&_capstoneOnceToken, ^{
+        _capstoneLock = [[NSObject alloc] init];
         cs_err err = cs_open(CS_ARCH_AARCH64, CS_MODE_LITTLE_ENDIAN, &_capstoneHandle);
         if (err != CS_ERR_OK) {
             [LoggingService log:@"Failed to initialize Capstone: %d", err];
@@ -99,7 +110,13 @@ static dispatch_once_t _capstoneOnceToken;
     info.address = address;
     info.value = instruction;
     info.isBranchLink = NO;
+    info.isBranch = NO;
+    info.isConditionalBranch = NO;
     info.targetAddress = 0;
+    info.isMemoryAccess = NO;
+    info.isStore = NO;
+    info.isLoad = NO;
+    info.memoryDisplacement = 0;
     
     if (_capstoneHandle == 0) {
         info.mnemonic = @".word";
@@ -114,17 +131,59 @@ static dispatch_once_t _capstoneOnceToken;
     bytes[3] = (instruction >> 24) & 0xFF;
     
     cs_insn *insn;
-    size_t count = cs_disasm(_capstoneHandle, bytes, sizeof(bytes), address, 1, &insn);
+    size_t count = 0;
+    @synchronized (_capstoneLock) {
+        count = cs_disasm(_capstoneHandle, bytes, sizeof(bytes), address, 1, &insn);
+    }
     
     if (count > 0) {
         info.mnemonic = [NSString stringWithUTF8String:insn[0].mnemonic];
         info.opStr = [NSString stringWithUTF8String:insn[0].op_str];
         
-        if (insn[0].id == ARM64_INS_BL) {
-            info.isBranchLink = YES;
-            if (insn[0].detail->aarch64.op_count > 0 && 
-                insn[0].detail->aarch64.operands[0].type == ARM64_OP_IMM) {
-                info.targetAddress = (uint64_t)insn[0].detail->aarch64.operands[0].imm;
+        if (insn[0].detail) {
+            cs_arm64 *detail = &insn[0].detail->aarch64;
+            switch (insn[0].id) {
+                case ARM64_INS_B:
+                case ARM64_INS_BL:
+                case ARM64_INS_CBZ:
+                case ARM64_INS_CBNZ:
+                case ARM64_INS_TBZ:
+                case ARM64_INS_TBNZ: {
+                    info.isBranch = YES;
+                    if (insn[0].id == ARM64_INS_B && detail->cc != ARM64_CC_AL) {
+                        info.isConditionalBranch = YES;
+                    }
+                    if (detail->op_count > 0 && detail->operands[0].type == ARM64_OP_IMM) {
+                        info.targetAddress = (uint64_t)detail->operands[0].imm;
+                    }
+                    break;
+                }
+                default:
+                    break;
+            }
+            if (insn[0].id == ARM64_INS_BL) {
+                info.isBranchLink = YES;
+            }
+
+            const char *mnemonic = insn[0].mnemonic;
+            BOOL looksLikeStore = (mnemonic[0] == 's' && mnemonic[1] == 't');
+            BOOL looksLikeLoad = (mnemonic[0] == 'l' && mnemonic[1] == 'd');
+            if (looksLikeStore || looksLikeLoad) {
+                for (int i = 0; i < detail->op_count; i++) {
+                    if (detail->operands[i].type == ARM64_OP_MEM) {
+                        info.isMemoryAccess = YES;
+                        info.isStore = looksLikeStore;
+                        info.isLoad = looksLikeLoad;
+                        info.memoryBaseRegister = SSRegisterName(detail->operands[i].mem.base);
+                        info.memoryIndexRegister = SSRegisterName(detail->operands[i].mem.index);
+                        info.memoryDisplacement = detail->operands[i].mem.disp;
+                        break;
+                    }
+                }
+                if (info.isMemoryAccess && detail->op_count > 0 &&
+                    detail->operands[0].type == ARM64_OP_REG) {
+                    info.dataRegister = SSRegisterName(detail->operands[0].reg);
+                }
             }
         }
         

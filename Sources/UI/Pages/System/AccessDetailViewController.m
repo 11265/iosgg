@@ -1,17 +1,28 @@
 #import "UI/Pages/System/AccessDetailViewController.h"
-#import "UI/Pages/System/AccessRegisterViewController.h"
+#import "UI/Pages/Debugger/AccessHitInspectorViewController.h"
 #import "Services/LogService.h"
 #import "UI/Components/ThemeConfig.h"
 #import "UI/Pages/Memory/MemoryPage.h"
 #import "UI/Components/FloatingWindow.h"
+#import "Services/SSSymbolicator.h"
 
 @interface AccessDetailsViewController () <UITableViewDelegate, UITableViewDataSource>
 
 @property (nonatomic, strong) UITableView *tableView;
+@property (nonatomic, strong) NSDateFormatter *timeFormatter;
+@property (nonatomic, assign) BOOL reloadScheduled;
 
 @end
 
 @implementation AccessDetailsViewController
+
+- (NSDateFormatter *)timeFormatter {
+    if (!_timeFormatter) {
+        _timeFormatter = [[NSDateFormatter alloc] init];
+        [_timeFormatter setDateFormat:@"HH:mm:ss"];
+    }
+    return _timeFormatter;
+}
 
 - (NSString *)formatHex:(uint64_t)value {
     if (value == 0) return @"0x0";
@@ -46,7 +57,7 @@
     [topBar addSubview:closeButton];
     
     [NSLayoutConstraint activateConstraints:@[
-        [topBar.topAnchor constraintEqualToAnchor:self.view.topAnchor],
+        [topBar.topAnchor constraintEqualToAnchor:self.view.safeAreaLayoutGuide.topAnchor],
         [topBar.leadingAnchor constraintEqualToAnchor:self.view.leadingAnchor],
         [topBar.trailingAnchor constraintEqualToAnchor:self.view.trailingAnchor],
         [topBar.heightAnchor constraintEqualToConstant:50],
@@ -71,22 +82,45 @@
         [self.tableView.topAnchor constraintEqualToAnchor:topBar.bottomAnchor],
         [self.tableView.leadingAnchor constraintEqualToAnchor:self.view.leadingAnchor],
         [self.tableView.trailingAnchor constraintEqualToAnchor:self.view.trailingAnchor],
-        [self.tableView.bottomAnchor constraintEqualToAnchor:self.view.bottomAnchor]
+        [self.tableView.bottomAnchor constraintEqualToAnchor:self.view.safeAreaLayoutGuide.bottomAnchor]
     ]];
     
     [[NSNotificationCenter defaultCenter] addObserver:self 
                                              selector:@selector(handleRecordUpdate:) 
                                                  name:kAccessRecordDidUpdateNotification 
                                                object:nil];
+    [[NSNotificationCenter defaultCenter] addObserver:self
+                                             selector:@selector(handleSymbolsReady:)
+                                                 name:SSSymbolicatorObjCMethodsDidBecomeReadyNotification
+                                               object:nil];
 }
 
 - (void)handleRecordUpdate:(NSNotification *)note {
     AccessRecord *updatedRecord = note.object;
-    if (updatedRecord == self.record) {
-        dispatch_async(dispatch_get_main_queue(), ^{
-            [self.tableView reloadData];
-        });
+    if (updatedRecord != self.record) {
+        return;
     }
+    // 高频命中时每来一条就 reload 会把主线程刷爆：0.25s 合并一次
+    if (self.reloadScheduled) {
+        return;
+    }
+    self.reloadScheduled = YES;
+    __weak typeof(self) weakSelf = self;
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.25 * NSEC_PER_SEC)),
+                   dispatch_get_main_queue(), ^{
+        __strong typeof(weakSelf) strongSelf = weakSelf;
+        if (!strongSelf) {
+            return;
+        }
+        strongSelf.reloadScheduled = NO;
+        [strongSelf.tableView reloadData];
+    });
+}
+
+- (void)handleSymbolsReady:(NSNotification *)note {
+    dispatch_async(dispatch_get_main_queue(), ^{
+        [self.tableView reloadData];
+    });
 }
 
 - (void)dealloc {
@@ -121,26 +155,28 @@
     NSString *typeStr;
     UIColor *typeColor;
     if (hit.type == SSBreakpointTypeWrite) {
-        typeStr = @"Write";
+        typeStr = @"写入";
         typeColor = [AppTheme writeTypeColor];
-    } else if (hit.type == SSBreakpointTypeRead) {
-        typeStr = @"Read";
-        typeColor = [AppTheme readTypeColor];
-    } else if (hit.type == SSBreakpointTypeReadWrite) {
-        typeStr = @"R/W";
-        typeColor = [UIColor colorWithRed:0.8f green:0.6f blue:1.0f alpha:1.0f];
     } else {
-        typeStr = @"Exec";
-        typeColor = [AppTheme textColor];
+        typeStr = @"访问";
+        typeColor = [UIColor colorWithRed:0.8f green:0.6f blue:1.0f alpha:1.0f];
     }
     
-    cell.textLabel.text = [NSString stringWithFormat:@"PC: %@  |  %@", [self formatHex:hit.instructionAddr], typeStr];
+    SSSymbol *symbol = [[SSSymbolicator shared] symbolForAddress:hit.instructionAddr];
+    NSString *symbolText = symbol.shortText;
+    if (symbolText.length == 0) {
+        symbolText = [self formatHex:hit.instructionAddr];
+    }
+    cell.textLabel.text = [NSString stringWithFormat:@"%@  |  %@", symbolText, typeStr];
     cell.textLabel.textColor = typeColor;
     
-    NSDateFormatter *formatter = [[NSDateFormatter alloc] init];
-    [formatter setDateFormat:@"HH:mm:ss"];
-    NSString *timeStr = [formatter stringFromDate:hit.timestamp];
-    cell.detailTextLabel.text = [NSString stringWithFormat:@"Val: %@  |  Count: %ld  |  %@", [self formatHex:hit.value], (long)hit.hitCount, timeStr];
+    NSString *timeStr = [self.timeFormatter stringFromDate:hit.timestamp];
+    NSString *moduleText = symbol.moduleText ?: @"";
+    cell.detailTextLabel.text = [NSString stringWithFormat:@"%@ · Val %@ | Count %ld | %@",
+                                 moduleText,
+                                 [self formatHex:hit.value],
+                                 (long)hit.hitCount,
+                                 timeStr];
     
     return cell;
 }
@@ -158,36 +194,8 @@
     [LoggingService log:@"[访问详情] hit.registers: %lu 项", (unsigned long)hit.registers.count];
     [LoggingService log:@"[访问详情] hit.callStack: %lu 项", (unsigned long)hit.callStack.count];
     
-    AccessRegisterViewController *vc = [[AccessRegisterViewController alloc] init];
-    vc.registers = hit.registers;
-    vc.callStack = hit.callStack;
-    vc.instructionAddr = hit.instructionAddr;
-    vc.memoryAddress = hit.memoryAddress;
-    
-    [LoggingService log:@"[访问详情] 准备显示 AccessRegisterViewController"];
-    
-    NSDateFormatter *formatter = [[NSDateFormatter alloc] init];
-    [formatter setDateFormat:@"HH:mm:ss"];
-    NSString *timeStr = [formatter stringFromDate:hit.timestamp];
-    
-    NSString *typeStr;
-    if (hit.type == SSBreakpointTypeWrite) {
-        typeStr = @"Write";
-    } else if (hit.type == SSBreakpointTypeRead) {
-        typeStr = @"Read";
-    } else if (hit.type == SSBreakpointTypeReadWrite) {
-        typeStr = @"R/W";
-    } else {
-        typeStr = @"Exec";
-    }
-    
-    vc.accessInfo = [NSString stringWithFormat:@"Address: %@\nValue:   %@\nPC:      %@\nType:    %@\nTime:    %@",
-                     [self formatHex:self.record.address],
-                     [self formatHex:hit.value],
-                     [self formatHex:hit.instructionAddr],
-                     typeStr,
-                     timeStr];
-                     
+    AccessHitInspectorViewController *vc =
+        [[AccessHitInspectorViewController alloc] initWithRecord:self.record hit:hit];
     vc.modalPresentationStyle = UIModalPresentationPageSheet;
     [self presentViewController:vc animated:YES completion:nil];
 }

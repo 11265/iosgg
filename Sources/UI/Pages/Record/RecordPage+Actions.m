@@ -33,13 +33,11 @@
                                                                         message:@"请选择监视类型"
                                                                  preferredStyle:UIAlertControllerStyleActionSheet];
     
-    NSArray *accessTypes = @[@"写入", @"读取", @"读写", @"执行"];
+    // 访问点只保留两种语义：写入（只盯写）与访问（只盯读）
+    NSArray *accessTypes = @[@"写入", @"访问"];
     
     for (NSInteger i = 0; i < accessTypes.count; i++) {
-        SSBreakpointType type = SSBreakpointTypeWrite;
-        if (i == 1) type = SSBreakpointTypeRead;
-        else if (i == 2) type = SSBreakpointTypeReadWrite;
-        else if (i == 3) type = SSBreakpointTypeExecute;
+        SSBreakpointType type = (i == 0) ? SSBreakpointTypeWrite : SSBreakpointTypeRead;
         
         SSBreakpointType finalType = type;
         UIAlertAction *action = [UIAlertAction actionWithTitle:accessTypes[i]
@@ -65,6 +63,9 @@
     }
     
     NSInteger addedCount = 0;
+    NSInteger failedCount = 0;
+    NSString *firstError = nil;
+
     for (NSNumber *index in self.selectedIndexes) {
         SSMemoryRecord *rec = [[self sharedStore] recordAtIndex:index.integerValue];
         if (!rec) continue;
@@ -72,14 +73,34 @@
         uint64_t address = [self resolvedAddressForRecord:rec];
         if (address == 0) {
             [LoggingService log:@"记录页面: 无法解析地址 %@", [rec displayAddressText]];
+            failedCount++;
             continue;
         }
-        [accessPage.viewModel addWatchpoint:address type:type];
-        addedCount++;
+
+        NSError *error = nil;
+        if ([accessPage.viewModel addWatchpoint:address type:type error:&error]) {
+            addedCount++;
+        } else {
+            failedCount++;
+            if (firstError.length == 0) {
+                firstError = error.localizedDescription;
+            }
+        }
     }
     
-    [LoggingService log:@"记录页面: 已添加 %ld 个地址到访问页, 当前监视数=%lu",
-     (long)addedCount, (unsigned long)accessPage.viewModel.watchpointCount];
+    [LoggingService log:@"记录页面: 已添加 %ld 个地址到访问页（失败 %ld）, 当前监视数=%lu",
+     (long)addedCount, (long)failedCount, (unsigned long)accessPage.viewModel.watchpointCount];
+
+    if (failedCount > 0) {
+        NSString *message = [NSString stringWithFormat:
+            @"成功 %ld 个，失败 %ld 个。\n%@",
+            (long)addedCount, (long)failedCount, firstError ?: @"未知错误"];
+        UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"添加访问点"
+                                                                       message:message
+                                                                preferredStyle:UIAlertControllerStyleAlert];
+        [alert addAction:[UIAlertAction actionWithTitle:@"好" style:UIAlertActionStyleCancel handler:nil]];
+        [self presentViewController:alert animated:YES completion:nil];
+    }
     
     [self.selectedIndexes removeAllObjects];
     [self.tableView reloadData];

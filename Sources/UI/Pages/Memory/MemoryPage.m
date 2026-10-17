@@ -203,7 +203,7 @@
         [self.tableView.topAnchor constraintEqualToAnchor:controlPanel.bottomAnchor constant:5],
         [self.tableView.leadingAnchor constraintEqualToAnchor:self.view.leadingAnchor constant:5],
         [self.tableView.trailingAnchor constraintEqualToAnchor:self.view.trailingAnchor constant:-5],
-        [self.tableView.bottomAnchor constraintEqualToAnchor:self.view.bottomAnchor constant:-5]
+        [self.tableView.bottomAnchor constraintEqualToAnchor:self.view.safeAreaLayoutGuide.bottomAnchor constant:-5]
     ]];
     
     // Layout Type Buttons

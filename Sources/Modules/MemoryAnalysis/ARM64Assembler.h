@@ -7,8 +7,19 @@
 @property (nonatomic, assign) uint32_t value;
 @property (nonatomic, copy) NSString *mnemonic;
 @property (nonatomic, copy) NSString *opStr;
-@property (nonatomic, assign) BOOL isBranchLink; // bl
+@property (nonatomic, assign) BOOL isBranchLink; // bl（MemoryPage 用它展开调用树）
+@property (nonatomic, assign) BOOL isBranch;     // 任意直接分支（b/bl/b.cond/cbz/tbz...）
+@property (nonatomic, assign) BOOL isConditionalBranch;
 @property (nonatomic, assign) uint64_t targetAddress;
+
+// load / store（供指令解释器使用）
+@property (nonatomic, assign) BOOL isMemoryAccess;
+@property (nonatomic, assign) BOOL isStore;
+@property (nonatomic, assign) BOOL isLoad;
+@property (nonatomic, copy) NSString *dataRegister;
+@property (nonatomic, copy) NSString *memoryBaseRegister;
+@property (nonatomic, copy) NSString *memoryIndexRegister;
+@property (nonatomic, assign) int64_t memoryDisplacement;
 @end
 
 @interface ARM64Assembler : NSObject

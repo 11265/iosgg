@@ -78,7 +78,7 @@
         [self.tableView.topAnchor constraintEqualToAnchor:backButton.bottomAnchor constant:10],
         [self.tableView.leadingAnchor constraintEqualToAnchor:self.view.leadingAnchor],
         [self.tableView.trailingAnchor constraintEqualToAnchor:self.view.trailingAnchor],
-        [self.tableView.bottomAnchor constraintEqualToAnchor:self.view.bottomAnchor]
+        [self.tableView.bottomAnchor constraintEqualToAnchor:self.view.safeAreaLayoutGuide.bottomAnchor]
     ]];
     
     [self.tableView registerClass:[UITableViewCell class] forCellReuseIdentifier:@"MoreCell"];

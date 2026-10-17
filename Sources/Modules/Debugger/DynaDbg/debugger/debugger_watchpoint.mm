@@ -153,7 +153,17 @@ kern_return_t Debugger::remove_watchpoint_by_index(int index)
         kr = clear_watchpoint_on_thread(thread_list[i], index);
         if (kr != KERN_SUCCESS)
         {
-            all_success = false;
+            // 线程在遍历过程中退出时 thread_get_state 会返回 KERN_INVALID_ARGUMENT；
+            // 这种线程已经不会再触发观察点，可以安全回收槽位。
+            if (kr == KERN_INVALID_ARGUMENT)
+            {
+                debug_log(LOG_WARN, "Thread %d gone while clearing watchpoint %d, ignoring",
+                          thread_list[i], index);
+            }
+            else
+            {
+                all_success = false;
+            }
         }
     }
 

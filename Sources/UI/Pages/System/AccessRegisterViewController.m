@@ -5,6 +5,7 @@
 #import "Modules/MemoryAnalysis/ARM64Assembler.h"
 #import "Services/LogService.h"
 #import "Modules/Debugger/SSDebugger.h"
+#import "Services/SSSymbolicator.h"
 
 @interface AccessRegisterViewController () <UITableViewDelegate, UITableViewDataSource>
 
@@ -16,6 +17,9 @@
 @property (nonatomic, strong) NSArray *callStackData;
 @property (nonatomic, strong) NSMutableArray *moduleRanges;
 @property (nonatomic, strong) NSArray *assemblyData;
+@property (nonatomic, strong) UIView *symbolBar;
+@property (nonatomic, strong) UILabel *symbolLabel;
+@property (nonatomic, strong) UILabel *symbolDetailLabel;
 
 @end
 
@@ -24,12 +28,35 @@ static dispatch_once_t onceToken;
 
 @implementation AccessRegisterViewController
 
+typedef NS_ENUM(NSInteger, SSRegisterSectionKind) {
+    SSRegisterSectionKindNone = -1,
+    SSRegisterSectionKindAssembly = 0,
+    SSRegisterSectionKindRegisters,
+    SSRegisterSectionKindCallStack
+};
+
+- (SSRegisterSectionKind)sectionKindForIndex:(NSInteger)section {
+    NSInteger index = section;
+    if (self.assemblyData.count > 0) {
+        if (index == 0) return SSRegisterSectionKindAssembly;
+        index--;
+    }
+    if (self.registerData.count > 0) {
+        if (index == 0) return SSRegisterSectionKindRegisters;
+        index--;
+    }
+    if (self.callStackData.count > 0) {
+        if (index == 0) return SSRegisterSectionKindCallStack;
+    }
+    return SSRegisterSectionKindNone;
+}
+
 + (void)initialize {
     dispatch_once(&onceToken, ^{
         RegisterNames = @[@"x0", @"x1", @"x2", @"x3", @"x4", @"x5", @"x6", @"x7",
                           @"x8", @"x9", @"x10", @"x11", @"x12", @"x13", @"x14", @"x15",
                           @"x16", @"x17", @"x18", @"x19", @"x20", @"x21", @"x22", @"x23",
-                          @"x24", @"x25", @"x26", @"x27", @"x28", @"fp", @"lr", @"sp", @"pc"];
+                          @"x24", @"x25", @"x26", @"x27", @"x28", @"fp", @"lr", @"sp", @"pc", @"cpsr"];
     });
 }
 
@@ -42,7 +69,25 @@ static dispatch_once_t onceToken;
     [self loadModuleRanges];
     [self buildData];
     [self setupNavigationBar];
+    [self setupSymbolBar];
     [self setupTableView];
+
+    [[NSNotificationCenter defaultCenter] addObserver:self
+                                             selector:@selector(handleSymbolsReady:)
+                                                 name:SSSymbolicatorObjCMethodsDidBecomeReadyNotification
+                                               object:nil];
+}
+
+- (void)dealloc {
+    [[NSNotificationCenter defaultCenter] removeObserver:self];
+}
+
+- (void)handleSymbolsReady:(NSNotification *)notification {
+    dispatch_async(dispatch_get_main_queue(), ^{
+        [self refreshSymbolBar];
+        [self buildData];
+        [self.tableView reloadData];
+    });
 }
 
 - (void)setupNavigationBar {
@@ -142,6 +187,59 @@ static dispatch_once_t onceToken;
     }
 }
 
+- (void)setupSymbolBar {
+    self.symbolBar = [[UIView alloc] init];
+    self.symbolBar.backgroundColor = [UIColor colorWithWhite:0.96f alpha:1.0f];
+    self.symbolBar.translatesAutoresizingMaskIntoConstraints = NO;
+    [self.view addSubview:self.symbolBar];
+    
+    self.symbolLabel = [[UILabel alloc] init];
+    self.symbolLabel.textColor = [UIColor blackColor];
+    self.symbolLabel.font = [UIFont boldSystemFontOfSize:13];
+    self.symbolLabel.lineBreakMode = NSLineBreakByTruncatingMiddle;
+    self.symbolLabel.translatesAutoresizingMaskIntoConstraints = NO;
+    [self.symbolBar addSubview:self.symbolLabel];
+    
+    self.symbolDetailLabel = [[UILabel alloc] init];
+    self.symbolDetailLabel.textColor = [UIColor colorWithWhite:0.45f alpha:1.0f];
+    self.symbolDetailLabel.font = [UIFont fontWithName:@"Menlo" size:10] ?: [UIFont systemFontOfSize:10];
+    self.symbolDetailLabel.lineBreakMode = NSLineBreakByTruncatingMiddle;
+    self.symbolDetailLabel.translatesAutoresizingMaskIntoConstraints = NO;
+    [self.symbolBar addSubview:self.symbolDetailLabel];
+    
+    [self refreshSymbolBar];
+    
+    [NSLayoutConstraint activateConstraints:@[
+        [self.symbolBar.topAnchor constraintEqualToAnchor:self.view.safeAreaLayoutGuide.topAnchor constant:44],
+        [self.symbolBar.leadingAnchor constraintEqualToAnchor:self.view.leadingAnchor constant:10],
+        [self.symbolBar.trailingAnchor constraintEqualToAnchor:self.view.trailingAnchor constant:-10],
+        [self.symbolBar.heightAnchor constraintEqualToConstant:44],
+        
+        [self.symbolLabel.topAnchor constraintEqualToAnchor:self.symbolBar.topAnchor constant:4],
+        [self.symbolLabel.leadingAnchor constraintEqualToAnchor:self.symbolBar.leadingAnchor],
+        [self.symbolLabel.trailingAnchor constraintEqualToAnchor:self.symbolBar.trailingAnchor],
+        
+        [self.symbolDetailLabel.topAnchor constraintEqualToAnchor:self.symbolLabel.bottomAnchor constant:2],
+        [self.symbolDetailLabel.leadingAnchor constraintEqualToAnchor:self.symbolBar.leadingAnchor],
+        [self.symbolDetailLabel.trailingAnchor constraintEqualToAnchor:self.symbolBar.trailingAnchor]
+    ]];
+}
+
+- (void)refreshSymbolBar {
+    if (!self.symbolLabel || !self.symbolDetailLabel) {
+        return;
+    }
+    SSSymbol *symbol = self.instructionAddr != 0
+        ? [[SSSymbolicator shared] symbolForAddress:self.instructionAddr]
+        : nil;
+    self.symbolLabel.text = symbol.shortText ?: @"未知地址";
+    if (symbol.moduleText.length > 0) {
+        self.symbolDetailLabel.text = [NSString stringWithFormat:@"触发点 · %@", symbol.moduleText];
+    } else {
+        self.symbolDetailLabel.text = @"触发点";
+    }
+}
+
 - (void)setupTableView {
     self.tableView = [[UITableView alloc] init];
     self.tableView.delegate = self;
@@ -158,10 +256,10 @@ static dispatch_once_t onceToken;
     [self.tableView addGestureRecognizer:longPress];
     
     [NSLayoutConstraint activateConstraints:@[
-        [self.tableView.topAnchor constraintEqualToAnchor:self.view.safeAreaLayoutGuide.topAnchor constant:44],
+        [self.tableView.topAnchor constraintEqualToAnchor:self.symbolBar.bottomAnchor constant:4],
         [self.tableView.leadingAnchor constraintEqualToAnchor:self.view.leadingAnchor],
         [self.tableView.trailingAnchor constraintEqualToAnchor:self.view.trailingAnchor],
-        [self.tableView.bottomAnchor constraintEqualToAnchor:self.view.bottomAnchor]
+        [self.tableView.bottomAnchor constraintEqualToAnchor:self.view.safeAreaLayoutGuide.bottomAnchor]
     ]];
 }
 
@@ -181,11 +279,17 @@ static dispatch_once_t onceToken;
         for (uint32_t j = 0; j < header->ncmds; j++) {
             if (lc->cmd == LC_SEGMENT_64) {
                 struct segment_command_64 *seg = (struct segment_command_64 *)lc;
-                uint64_t start = seg->vmaddr + slide;
-                uint64_t end = start + seg->vmsize;
-                if (start < min_addr) min_addr = start;
-                if (end > max_addr) max_addr = end;
+                // __PAGEZERO（initprot=0）从 0 开始，算进来会让「地址归属」把所有低地址都判给主二进制
+                BOOL usable = (seg->vmsize > 0) &&
+                              ((seg->initprot & (VM_PROT_READ | VM_PROT_EXECUTE)) != 0);
+                if (usable) {
+                    uint64_t start = seg->vmaddr + slide;
+                    uint64_t end = start + seg->vmsize;
+                    if (start < min_addr) min_addr = start;
+                    if (end > max_addr) max_addr = end;
+                }
             }
+            if (lc->cmdsize == 0) break;
             lc = (struct load_command *)((uintptr_t)lc + lc->cmdsize);
         }
         
@@ -242,11 +346,33 @@ static dispatch_once_t onceToken;
             uint64_t addr = strtoull([addrStr UTF8String], NULL, 16);
             NSDictionary *addrInfo = [self analyzeAddress:addr];
             
+            // 前 12 帧做完整符号化（会按镜像解析符号表），更深的帧只给「模块+偏移」，
+            // 避免一次打开页面时把几十个系统库的符号表全解析一遍。
+            NSString *symbolText = @"";
+            NSString *moduleText = @"";
+            if (i < 12) {
+                SSSymbol *symbol = (i == 0)
+                    ? [[SSSymbolicator shared] symbolForAddress:addr]
+                    : [[SSSymbolicator shared] symbolForReturnAddress:addr];
+                symbolText = symbol.shortText ?: @"";
+                moduleText = symbol.moduleText ?: @"";
+            } else {
+                NSString *moduleName = addrInfo[@"moduleName"];
+                uint64_t offset = [addrInfo[@"offset"] unsignedLongLongValue];
+                if (moduleName.length > 0) {
+                    moduleText = [NSString stringWithFormat:@"%@+0x%llX", moduleName, offset];
+                } else {
+                    moduleText = [NSString stringWithFormat:@"0x%llX", addr];
+                }
+            }
+            
             [stack addObject:@{
                 @"index": @(i),
                 @"address": addrStr,
                 @"addrValue": @(addr),
-                @"addrInfo": addrInfo
+                @"addrInfo": addrInfo,
+                @"symbolText": symbolText,
+                @"moduleText": moduleText
             }];
         }
     }
@@ -392,14 +518,15 @@ static dispatch_once_t onceToken;
 }
 
 - (NSString *)getTextForRowAtIndexPath:(NSIndexPath *)indexPath {
-    if (self.assemblyData.count > 0 && indexPath.section == 0) {
+    SSRegisterSectionKind kind = [self sectionKindForIndex:indexPath.section];
+    if (kind == SSRegisterSectionKindAssembly && indexPath.row < self.assemblyData.count) {
         NSDictionary *asmData = self.assemblyData[indexPath.row];
         uint64_t addr = [asmData[@"address"] unsignedLongLongValue];
         NSString *assembly = asmData[@"assembly"];
         return [NSString stringWithFormat:@"0x%llX: %@", addr, assembly];
     }
     
-    if (self.registerData.count > 0 && indexPath.section == (self.assemblyData.count > 0 ? 1 : 0)) {
+    if (kind == SSRegisterSectionKindRegisters && indexPath.row < self.registerData.count) {
         NSDictionary *reg = self.registerData[indexPath.row];
         NSString *name = reg[@"name"];
         uint64_t value = [reg[@"value"] unsignedLongLongValue];
@@ -415,6 +542,12 @@ static dispatch_once_t onceToken;
         return [NSString stringWithFormat:@"%@: --", name];
     }
     
+    if (kind == SSRegisterSectionKindCallStack && indexPath.row < self.callStackData.count) {
+        NSDictionary *frame = self.callStackData[indexPath.row];
+        return [NSString stringWithFormat:@"#%@  %@  %@",
+                frame[@"index"], frame[@"address"], frame[@"symbolText"]];
+    }
+    
     return nil;
 }
 
@@ -424,24 +557,55 @@ static dispatch_once_t onceToken;
     NSInteger sections = 0;
     if (self.assemblyData.count > 0) sections++;
     if (self.registerData.count > 0) sections++;
+    if (self.callStackData.count > 0) sections++;
     return sections;
 }
 
 - (NSInteger)tableView:(UITableView *)tableView numberOfRowsInSection:(NSInteger)section {
-    if (section == 0 && self.assemblyData.count > 0) {
-        return self.assemblyData.count;
+    switch ([self sectionKindForIndex:section]) {
+        case SSRegisterSectionKindAssembly:
+            return self.assemblyData.count;
+        case SSRegisterSectionKindRegisters:
+            return self.registerData.count;
+        case SSRegisterSectionKindCallStack:
+            return self.callStackData.count;
+        default:
+            return 0;
     }
-    if (self.registerData.count > 0) {
-        return self.registerData.count;
-    }
-    return 0;
 }
 
 - (UITableViewCell *)tableView:(UITableView *)tableView cellForRowAtIndexPath:(NSIndexPath *)indexPath {
     static NSString *asmCellId = @"AsmCell";
     static NSString *regCellId = @"RegCell";
+    static NSString *stackCellId = @"StackCell";
     
-    if (self.assemblyData.count > 0 && indexPath.section == 0) {
+    SSRegisterSectionKind kind = [self sectionKindForIndex:indexPath.section];
+    
+    if (kind == SSRegisterSectionKindCallStack) {
+        UITableViewCell *cell = [tableView dequeueReusableCellWithIdentifier:stackCellId];
+        if (!cell) {
+            cell = [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleSubtitle reuseIdentifier:stackCellId];
+            cell.backgroundColor = [UIColor whiteColor];
+            cell.selectionStyle = UITableViewCellSelectionStyleDefault;
+            cell.textLabel.font = [UIFont fontWithName:@"Menlo" size:12];
+            cell.textLabel.textColor = [UIColor blackColor];
+            cell.detailTextLabel.font = [UIFont fontWithName:@"Menlo" size:10];
+            cell.detailTextLabel.textColor = [UIColor colorWithWhite:0.45f alpha:1.0f];
+        }
+        
+        NSDictionary *frame = self.callStackData[indexPath.row];
+        cell.textLabel.text = [NSString stringWithFormat:@"#%@  %@", frame[@"index"], frame[@"address"]];
+        NSString *symbolText = frame[@"symbolText"];
+        NSString *moduleText = frame[@"moduleText"];
+        if (symbolText.length > 0) {
+            cell.detailTextLabel.text = [NSString stringWithFormat:@"%@  ·  %@", symbolText, moduleText];
+        } else {
+            cell.detailTextLabel.text = moduleText;
+        }
+        return cell;
+    }
+    
+    if (kind == SSRegisterSectionKindAssembly) {
         UITableViewCell *cell = [tableView dequeueReusableCellWithIdentifier:asmCellId];
         if (!cell) {
             cell = [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleDefault reuseIdentifier:asmCellId];
@@ -541,7 +705,23 @@ static dispatch_once_t onceToken;
     return @" ";
 }
 
+- (NSString *)tableView:(UITableView *)tableView titleForHeaderInSection:(NSInteger)section {
+    switch ([self sectionKindForIndex:section]) {
+        case SSRegisterSectionKindAssembly:
+            return @"汇编";
+        case SSRegisterSectionKindRegisters:
+            return @"寄存器";
+        case SSRegisterSectionKindCallStack:
+            return [NSString stringWithFormat:@"调用栈（%lu 帧）", (unsigned long)self.callStackData.count];
+        default:
+            return nil;
+    }
+}
+
 - (CGFloat)tableView:(UITableView *)tableView heightForRowAtIndexPath:(NSIndexPath *)indexPath {
+    if ([self sectionKindForIndex:indexPath.section] == SSRegisterSectionKindCallStack) {
+        return 44;
+    }
     return 30;
 }
 

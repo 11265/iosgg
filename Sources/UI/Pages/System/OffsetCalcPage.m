@@ -232,7 +232,7 @@
         [self.historyTable.topAnchor constraintEqualToAnchor:historyLabel.bottomAnchor constant:5],
         [self.historyTable.leadingAnchor constraintEqualToAnchor:self.view.leadingAnchor],
         [self.historyTable.trailingAnchor constraintEqualToAnchor:self.view.trailingAnchor],
-        [self.historyTable.bottomAnchor constraintEqualToAnchor:self.view.bottomAnchor]
+        [self.historyTable.bottomAnchor constraintEqualToAnchor:self.view.safeAreaLayoutGuide.bottomAnchor]
     ]];
 }
 

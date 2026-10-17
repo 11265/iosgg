@@ -31,7 +31,7 @@ typedef void (^SSBreakpointCallback)(void *address, SSBreakpointType type, uint6
            callback:(SSBreakpointCallback)callback 
              error:(NSError **)error;
 
-- (void)removeWatchAtAddress:(uint64_t)address;
+- (BOOL)removeWatchAtAddress:(uint64_t)address;
 
 - (SSBreakpointType)watchTypeForAddress:(uint64_t)address;
 

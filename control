@@ -1,6 +1,6 @@
 Package: com.yourcompany.ss
 Name: ss
-Version: 0.0.6
+Version: 0.1.0
 Architecture: iphoneos-arm
 Description: An awesome MobileSubstrate tweak!
 Maintainer: ss

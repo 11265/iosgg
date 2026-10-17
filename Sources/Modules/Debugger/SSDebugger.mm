@@ -179,6 +179,7 @@ extern "C" bool send_exception_info(const NativeExceptionInfo* info, pid_t pid) 
             userInfo[@"memoryAddress"] = @(memory_address);
             userInfo[@"value"] = @(value);
             userInfo[@"type"] = @(type);
+            userInfo[@"size"] = @(watchpoint_size);
 
             NSArray<NSString *> *callStack = SSCallStackToArray(rawCallStack);
             userInfo[@"callStack"] = callStack;
@@ -439,11 +440,12 @@ extern "C" bool send_exception_info(const NativeExceptionInfo* info, pid_t pid) 
     return YES;
 }
 
-- (void)removeWatchAtAddress:(uint64_t)address {
+- (BOOL)removeWatchAtAddress:(uint64_t)address {
     kern_return_t kr = remove_watchpoint_native(address);
     if (kr != KERN_SUCCESS) {
         [LoggingService log:@"移除观察点失败: 0x%llX, kr=%d", address, kr];
-        return;
+        // 原生侧可能还有线程没摘干净，保留 host 侧记录，避免后续误判“已移除”
+        return NO;
     }
     
     NSNumber *addrNum = @(address);
@@ -453,6 +455,7 @@ extern "C" bool send_exception_info(const NativeExceptionInfo* info, pid_t pid) 
     [self.addressToDebugReg removeObjectForKey:addrNum];
     
     [LoggingService log:@"观察点已移除: 0x%llX", address];
+    return YES;
 }
 
 - (SSBreakpointCallback)watchCallbackForAddress:(uint64_t)address {
