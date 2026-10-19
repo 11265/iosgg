@@ -1,13 +1,13 @@
 #import "UI/Components/FloatingWindow.h"
 #import "UI/Components/DraggableView.h"
 #import "Services/LogService.h"
-#import "Core/Module/SSModuleManager.h"
+#import "App/Module/SSModuleManager.h"
 #import "Modules/ProcessInfo/SSProcessInfoModule.h"
 #import "Modules/Scanner/SSScannerModule.h"
-#import "Modules/MemoryAnalysis/SSMemoryAnalysisModule.h"
+#import "Modules/PointerScan/SSPointerScanModule.h"
 #import "Modules/Debugger/SSDebuggerModule.h"
 #import "Modules/Remote/SSRemoteModule.h"
-#import "UI/Pages/System/BreakpointHitPresenter.h"
+#import "UI/Pages/Debugger/BreakpointHitPresenter.h"
 
 %hook UIApplication
 
@@ -63,7 +63,7 @@
     SSModuleManager *mgr = [SSModuleManager shared];
     [mgr registerModule:[SSProcessInfoModule shared]];
     [mgr registerModule:[SSScannerModule shared]];
-    [mgr registerModule:[SSMemoryAnalysisModule shared]];
+    [mgr registerModule:[SSPointerScanModule shared]];
     [mgr registerModule:[SSDebuggerModule shared]];
     [mgr registerModule:[SSRemoteModule shared]];
     [mgr startAllModules];

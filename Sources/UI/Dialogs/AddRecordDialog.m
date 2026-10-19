@@ -1,6 +1,6 @@
 #import "UI/Dialogs/AddRecordDialog.h"
 #import "UI/Pages/Record/RecordPage.h"
-#import "Modules/MemoryAnalysis/PointerChainParser.h"
+#import "Modules/PointerScan/PointerChainParser.h"
 #import "UI/Components/FloatingWindow.h"
 #import "Services/LogService.h"
 #import <objc/runtime.h>

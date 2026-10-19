@@ -1,4 +1,5 @@
 #import "Modules/Scanner/Scanner.h"
+#import "Core/Memory/SSMemoryBridge.h"
 #import "Services/LogService.h"
 #import "External/lz4/lz4.h"
 #import <pthread.h>
@@ -157,7 +158,7 @@ static void 批次提交(void *上下文, const AddressValuePair *项, size_t �
 // ── 内部类型定义 ────────────────────────
 
 typedef struct {
-    vm_address_t start;
+    uint64_t start;
     size_t size;
 } 区域范围;
 /// 一个待扫描的连续内存块
@@ -183,49 +184,33 @@ void 处理搜索结果回调(size_t match_count, const char* result_path);
 // ║  2. 内存区域收集                         ║
 // ╚══════════════════════════════════════════╝
 
-/// 遍历进程虚拟内存空间，收集所有具备 VM_PROT_WRITE 权限的区域
+/// 遍历进程虚拟内存空间，收集所有可写区域。
+/// 区域枚举由 Shared Core 统一完成，Scanner 不再直接调用 vm_region_*。
 static std::vector<区域范围> 收集有效内存区域(void) {
     std::vector<区域范围> regions;
-    mach_port_t task = mach_task_self();
-    vm_address_t address = 0;
+    uint64_t cursor = 0;
+    SSMemoryRegionInfo info;
 
-    while (true) {
-        vm_size_t size = 0;
-        natural_t depth = 0;
-        vm_region_submap_info_data_64_t info;
-        mach_msg_type_number_t count = VM_REGION_SUBMAP_INFO_COUNT_64;
-        kern_return_t kr = vm_region_recurse_64(task, &address, &size, &depth, (vm_region_info_t)&info, &count);
-
-        if (kr != KERN_SUCCESS) {
-            if (kr == KERN_INVALID_ADDRESS) {
-                break;
-            }
-            [LoggingService log:@"vm_region_recurse_64 失败，错误代码: %d", kr];
-            if (size == 0) {
-                break;
-            }
-            address += size;
-            continue;
-        }
-
-        if (address >= MEMORY_RANGE_END) {
+    while (SSMemoryNextRegion(&cursor, true, &info)) {
+        if (info.startAddress >= MEMORY_RANGE_END) {
             break;
         }
-        if (address + size <= MEMORY_RANGE_START) {
-            address += size;
+        if (info.endAddress <= MEMORY_RANGE_START) {
             continue;
         }
 
-        vm_address_t valid_start = address < MEMORY_RANGE_START ? MEMORY_RANGE_START : address;
-        vm_address_t valid_end = (address + size) > MEMORY_RANGE_END ? MEMORY_RANGE_END : (address + size);
-        size_t adjusted_size = valid_end - valid_start;
-
-        if (是有效内存区域(info) && adjusted_size > 0) {
-            区域范围 region = {valid_start, adjusted_size};
-            regions.push_back(region);
+        const uint64_t valid_start = info.startAddress < MEMORY_RANGE_START
+            ? MEMORY_RANGE_START
+            : info.startAddress;
+        const uint64_t valid_end = info.endAddress > MEMORY_RANGE_END
+            ? MEMORY_RANGE_END
+            : info.endAddress;
+        if (valid_end <= valid_start) {
+            continue;
         }
 
-        address += size;
+        区域范围 region = {valid_start, (size_t)(valid_end - valid_start)};
+        regions.push_back(region);
     }
 
     return regions;
@@ -400,7 +385,6 @@ void 执行精确首次搜索(数值 target, 数据类型 data_type, size_t type
     }
     初始化结果写入器(writer, result_fp);
     
-    mach_port_t task = mach_task_self();
     std::vector<区域范围> 区域表 = 收集有效内存区域();
     
     // 展开成块列表：任务粒度是"块"，不是"区域"
@@ -441,16 +425,15 @@ void 执行精确首次搜索(数值 target, 数据类型 data_type, size_t type
             if (i >= 块表->size()) break;
             
             const 扫描块 块 = (*块表)[i];
-            mach_vm_size_t 读到 = 0;
-            kern_return_t kr = mach_vm_read_overwrite(task, 块.addr, 块.size,
-                                                      (mach_vm_address_t)缓冲, &读到);
+            size_t 读到 = 0;
+            const bool 读取成功 = SSMemoryRead(块.addr, 缓冲, 块.size, &读到);
             
             // 部分读取时已读到的前缀照样扫，不能整块丢掉
             size_t 可扫 = 0;
-            if (kr == KERN_SUCCESS) {
+            if (读取成功 && 读到 == 块.size) {
                 可扫 = 块.size;
             } else if (读到 > 0) {
-                可扫 = (size_t)读到;
+                可扫 = 读到;
             }
             if (可扫 > 0) {
                 扫描块_单值(缓冲, 可扫, 块.addr, data_type, 精确, &target,
@@ -551,7 +534,6 @@ void 执行模糊首次搜索(数值 target, 数据类型 data_type, 对比类�
     pthread_mutex_t *dump_mutex = (pthread_mutex_t*)malloc(sizeof(pthread_mutex_t));
     pthread_mutex_init(dump_mutex, NULL);
     
-    mach_port_t task = mach_task_self();
     std::vector<区域范围> 区域表 = 收集有效内存区域();
     
     const size_t 块大小 = 扫描块大小();
@@ -599,14 +581,13 @@ void 执行模糊首次搜索(数值 target, 数据类型 data_type, 对比类�
             // 内存吃紧时让出 CPU（内部有 500ms 缓存，代价可忽略）
             if (检查内存压力(压力阈值)) usleep(50000);
             
-            mach_vm_size_t 读到 = 0;
-            kern_return_t kr = mach_vm_read_overwrite(task, 块.addr, 块.size,
-                                                      (mach_vm_address_t)读缓冲, &读到);
+            size_t 读到 = 0;
+            const bool 读取成功 = SSMemoryRead(块.addr, 读缓冲, 块.size, &读到);
             size_t 可存 = 0;
-            if (kr == KERN_SUCCESS) {
+            if (读取成功 && 读到 == 块.size) {
                 可存 = 块.size;
             } else if (读到 > 0) {
-                可存 = (size_t)读到;   // 部分读取：已读到的前缀照样进快照
+                可存 = 读到;   // 部分读取：已读到的前缀照样进快照
             }
             
             if (可存 == 0) {
@@ -903,10 +884,8 @@ size_t 从原始数据比较(数值 target, 数据类型 data_type, 对比类型
                 memcpy(旧值, 旧文件, 块长);
             }
             
-            mach_vm_size_t 读到 = 0;
-            if (mach_vm_read_overwrite(mach_task_self(), 条目->address, 块长,
-                                       (mach_vm_address_t)当前, &读到) != KERN_SUCCESS
-                || 读到 != 块长) {
+            size_t 读到 = 0;
+            if (!SSMemoryRead(条目->address, 当前, 块长, &读到) || 读到 != 块长) {
                 上报进度(块长);
                 continue;
             }
@@ -1028,7 +1007,7 @@ size_t 从原始数据比较(数值 target, 数据类型 data_type, 对比类型
     
     return match_count;
 }
-/// 过滤模式再次搜索：候选按地址排序后按 4KB 页批量读取，一页只做一次 mach_vm_read。
+/// 过滤模式再次搜索：候选按地址排序后按 4KB 页批量读取，一页只做一次 Shared Core 读取。
 /// 候选按 6.5 万一批处理，内存占用有上界（约 1MB/批）。
 size_t 从上次结果比较(数值 target, 数据类型 data_type, 对比类型 type, size_t type_size, FILE* new_fp) {
     [LoggingService log:@"从上一次结果进行比较（页级批读）"];
@@ -1062,7 +1041,6 @@ size_t 从上次结果比较(数值 target, 数据类型 data_type, 对比类型
     bool 截断 = false;
     bool 被取消 = false;
     
-    mach_port_t task = mach_task_self();
     uint8_t 页[4096 + 8];
     
     for (;;) {
@@ -1088,11 +1066,11 @@ size_t 从上次结果比较(数值 target, 数据类型 data_type, 对比类型
             
             // 先多读 8 字节（覆盖跨页的值），失败再退回整页
             size_t 可用 = 0;
-            mach_vm_size_t 读到 = 0;
-            if (mach_vm_read_overwrite(task, 页基址, sizeof(页), (mach_vm_address_t)页, &读到) == KERN_SUCCESS) {
-                可用 = (size_t)读到;
-            } else if (mach_vm_read_overwrite(task, 页基址, 4096, (mach_vm_address_t)页, &读到) == KERN_SUCCESS) {
-                可用 = (size_t)读到;
+            size_t 读到 = 0;
+            if (SSMemoryRead(页基址, 页, sizeof(页), &读到)) {
+                可用 = 读到;
+            } else if (SSMemoryRead(页基址, 页, 4096, &读到)) {
+                可用 = 读到;
             }
             页读次数++;
             
@@ -1107,9 +1085,8 @@ size_t 从上次结果比较(数值 target, 数据类型 data_type, 对比类型
                 if (可用 >= 页内偏移 + type_size) {
                     当前 = 页 + 页内偏移;
                 } else {
-                    mach_vm_size_t 小 = 0;
-                    if (mach_vm_read_overwrite(task, 旧.address, type_size,
-                                               (mach_vm_address_t)单值, &小) != KERN_SUCCESS
+                    size_t 小 = 0;
+                    if (!SSMemoryRead(旧.address, 单值, type_size, &小)
                         || 小 != type_size) {
                         continue;
                     }

@@ -1,8 +1,7 @@
 #import "UI/Dialogs/BaseAddressDialog.h"
 #import "Services/LogService.h"
-#import <mach/mach.h>
 #import <mach-o/dyld.h>
-#import "Modules/ProcessInfo/ProcessMemory.h"
+#import "Core/Memory/SSMemoryBridge.h"
 #import "Services/LogService.h"
 
 
@@ -169,10 +168,9 @@
         for (NSUInteger i = 1; i < components.count; i++) {
             // 读取当前地址的指针值
             uint64_t pointerValue = 0;
-            mach_vm_size_t size = sizeof(uint64_t);
-            kern_return_t kr = mach_vm_read_overwrite(mach_task_self(), currentAddr, size, (mach_vm_address_t)&pointerValue, &size);
-            
-            if (kr != KERN_SUCCESS) {
+            size_t size = sizeof(uint64_t);
+            size_t outSize = 0;
+            if (!SSMemoryRead(currentAddr, &pointerValue, size, &outSize) || outSize != size) {
                 [LoggingService log:@"读取地址 0x%llX 失败", currentAddr];
                 self.resultLabel.text = [NSString stringWithFormat:@"读取地址 0x%llX 失败", currentAddr];
                 return;
@@ -232,14 +230,9 @@
             // 如果不是最后一个偏移，需要读取指针指向的地址
             if (i < allComponents.count - 1) {
                 uint64_t nextAddr = 0;
-                mach_vm_size_t size = sizeof(uint64_t);
-                kern_return_t kr = mach_vm_read_overwrite(mach_task_self(),
-                                                        currentAddr,
-                                                        size,
-                                                        (mach_vm_address_t)&nextAddr,
-                                                        &size);
-                
-                if (kr != KERN_SUCCESS) {
+                size_t size = sizeof(uint64_t);
+                size_t outSize = 0;
+                if (!SSMemoryRead(currentAddr, &nextAddr, size, &outSize) || outSize != size) {
                     [LoggingService log:@"读取地址 0x%llX 失败", currentAddr];
                     self.resultLabel.text = [NSString stringWithFormat:@"读取地址 0x%llX 失败", currentAddr];
                     return;
@@ -256,14 +249,9 @@
     
     // 读取最终地址的 int32 值
     int32_t finalValue = 0;
-    mach_vm_size_t size = sizeof(int32_t);
-    kern_return_t kr = mach_vm_read_overwrite(mach_task_self(),
-                                            currentAddr,
-                                            size,
-                                            (mach_vm_address_t)&finalValue,
-                                            &size);
-    
-    if (kr == KERN_SUCCESS) {
+    size_t size = sizeof(int32_t);
+    size_t outSize = 0;
+    if (SSMemoryRead(currentAddr, &finalValue, size, &outSize) && outSize == size) {
         self.resultLabel.text = [NSString stringWithFormat:@"值: %d (0x%X)", finalValue, finalValue];
         [LoggingService log:@"读取值成功 - 地址: 0x%llX, 值: %d", currentAddr, finalValue];
     } else {

@@ -1,46 +1,44 @@
-export THEOS_DEVICE_IP = 192.168.3.12
-ARCHS = arm64
-TARGET := iphone:clang:latest:15.0
-INSTALL_TARGET_PROCESSES = pvz#结束进程
-THEOS_PACKAGE_SCHEME = rootless#多巴胺支持
+# 顶层构建入口：C++17 核心与 Objective-C UI 分开编译，最后链接。
+#
+#   make                    先编译 Build/Core/ 下的 C++17 静态库，再编译 UI/tweak
+#   make package            同上，然后打包
+#   make clean              清理两边产物
+#
+# 需要 THEOS 指向 Theos；未设置时默认 ~/theos。
+# C++ 核心产物：build/libsscore.a
+# Theos 构建文件：Tweak.mk（只包含 ObjC/ObjC++ 源，链接上面的静态库）
 
-# 确保 SDK 路径正确
-SDK_PATH = $(THEOS)/sdks/iPhoneOS.sdk
+THEOS ?= $(HOME)/theos
+export THEOS
 
-include $(THEOS)/makefiles/common.mk
+CORE_DIR       := $(CURDIR)/Build/Core
+CORE_LIB       := $(CURDIR)/build/libsscore.a
+TWEAK_MAKEFILE := Tweak.mk
 
-TWEAK_NAME = ss
+# 让 FINALPACKAGE 同时作用于核心与 tweak，保证 print-archive 的路径一致
+CORE_FLAGS := FINALPACKAGE=$(FINALPACKAGE)
 
-# 编译标志
-# 注意：Theos 不带 FINALPACKAGE=1 时默认 DEBUG=1 → -O0（包名带 +debug）。
-# 性能相关的包请用：  make package FINALPACKAGE=1
-# 下面显式 -O2 覆盖 release 的 -Os：扫描/比较/LZ4 循环对优化等级很敏感。
-ss_CFLAGS = -fobjc-arc \
-            -IExternal/capstone \
-            -IExternal/keystone \
-            -IExternal/ptrscan/include \
-            -ISources \
-            -I. \
-            -O2
+.PHONY: all core tweak clean package install do stage
 
-# C++ 编译标志
-ss_CXXFLAGS = -std=c++17
+all: tweak
 
-# 链接标志
-ss_LDFLAGS = External/libcapstone.a \
-            External/libkeystone.a \
-            External/ptrscan/libptrscan-ios-arm64.a
+# 第一阶段：纯 C++17 核心，独立编译成静态库
+core:
+	@$(MAKE) -C "$(CORE_DIR)" THEOS="$(THEOS)" $(CORE_FLAGS)
+	@mkdir -p "$(dir $(CORE_LIB))"
+	@archive="$$($(MAKE) -C "$(CORE_DIR)" -s print-archive THEOS="$(THEOS)" $(CORE_FLAGS))"; \
+	 cp "$$archive" "$(CORE_LIB)"; \
+	 echo "C++ core archive: $(CORE_LIB)"
 
-# 源文件（自动发现，新增模块/文件无需修改 Makefile）
-# 注意：DynaDbg/ 下的 .mm/.cpp 被 SSDebugger.mm 直接 #include，不单独编译
-#       唯一例外是 exception_queue.mm（独立编译单元）
-ss_FILES = $(shell find Sources -type f \( -name '*.m' -o -name '*.mm' -o -name '*.x' -o -name '*.c' -o -name '*.cpp' \) \
-    ! -path 'Sources/Modules/Debugger/DynaDbg/*')
-ss_FILES += Sources/Modules/Debugger/DynaDbg/debugger/exception_queue.mm
-ss_FILES += $(wildcard External/lz4/*.c)
+# 第二阶段：Objective-C / ObjC++ UI 与适配层，链接第一阶段产物
+tweak: core
+	@$(MAKE) -f "$(TWEAK_MAKEFILE)" CORE_LIB="$(CORE_LIB)" THEOS="$(THEOS)" $(CORE_FLAGS)
 
+clean:
+	@$(MAKE) -C "$(CORE_DIR)" clean THEOS="$(THEOS)" || true
+	@$(MAKE) -f "$(TWEAK_MAKEFILE)" clean THEOS="$(THEOS)" || true
+	@rm -rf "$(CURDIR)/build"
 
-ss_FRAMEWORKS = UIKit
-
-
-include $(THEOS_MAKE_PATH)/tweak.mk
+# package / install / do / stage：先保证核心已构建，再转发给 Tweak.mk
+package install do stage: core
+	@$(MAKE) -f "$(TWEAK_MAKEFILE)" $@ CORE_LIB="$(CORE_LIB)" THEOS="$(THEOS)" $(CORE_FLAGS)

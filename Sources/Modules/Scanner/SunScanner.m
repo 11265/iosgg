@@ -1,6 +1,6 @@
 #import "Modules/Scanner/SunScanner.h"
 #import "Services/LogService.h"
-#import "Modules/ProcessInfo/ProcessMemory.h"
+#import "Core/Platform/ProcessMemory.h"
 #import <mach/mach.h>
 
 @interface SunScanner ()

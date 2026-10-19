@@ -10,7 +10,7 @@
 #import "UI/Pages/Debugger/TracePage.h"
 #import "UI/Pages/Record/RecordPage.h"
 #import "Services/LogService.h"
-#import "Modules/ProcessInfo/ProcessMemory.h"
+#import "Core/Memory/SSMemoryBridge.h"
 #import "Modules/Scanner/Scanner.h"
 #import "Models/SSRecordStore.h"
 #import "Models/SSDataTypeUtility.h"
@@ -285,8 +285,8 @@
 - (void)showModifyAlertForAddress:(uint64_t)address type:(SearchDataType)type {
     uint64_t currentValue = 0;
     size_t readWidth = [SSDataTypeUtility widthForType:type];
-    mach_vm_size_t outsize = 0;
-    mach_vm_read_overwrite(mach_task_self(), address, readWidth, (mach_vm_address_t)&currentValue, &outsize);
+    size_t outsize = 0;
+    SSMemoryRead(address, &currentValue, readWidth, &outsize);
     
     NSString *currentValueStr = [SSDataTypeUtility decimalStringForValue:currentValue type:type];
     
@@ -307,10 +307,10 @@
         if (!input || input.length == 0) return;
         
         uint64_t valueToWrite = [SSDataTypeUtility rawValueFromInput:input type:type];
-        mach_msg_type_number_t writeSize = (mach_msg_type_number_t)[SSDataTypeUtility widthForType:type];
-        kern_return_t kr = mach_vm_write(mach_task_self(), address, (vm_offset_t)&valueToWrite, writeSize);
+        size_t writeSize = [SSDataTypeUtility widthForType:type];
+        const bool writeOK = SSMemoryWrite(address, &valueToWrite, writeSize, NULL);
         
-        if (kr == KERN_SUCCESS) {
+        if (writeOK) {
             [LoggingService log:@"数值修改成功: 0x%llX -> %@", address, input];
             [[NSNotificationCenter defaultCenter] postNotificationName:@"ModifyValueNotification"
                                                               object:nil
@@ -320,7 +320,7 @@
                 @"type": @(type)
             }];
         } else {
-            [LoggingService log:@"数值修改失败: 0x%llX (Error: %d)", address, kr];
+            [LoggingService log:@"数值修改失败: 0x%llX", address];
         }
     }]];
     
@@ -402,9 +402,8 @@
                 while (fread(&pair, sizeof(AddressValuePair), 1, fp) == 1) {
                     uint64_t address = pair.address + offset;
                     uint64_t value = 0;
-                    mach_vm_size_t outsize = 0;
-                    mach_vm_read_overwrite(mach_task_self(), address, sizeof(uint64_t),
-                                           (mach_vm_address_t)&value, &outsize);
+                    size_t outsize = 0;
+                    SSMemoryRead(address, &value, sizeof(uint64_t), &outsize);
                     AddressValuePair new_pair;
                     new_pair.address = address;
                     memcpy(new_pair.bytes, &value, sizeof(value));

@@ -9,6 +9,9 @@
 #include <string>
 #include <vector>
 
+// WatchpointType 等类型（本头文件也会被独立编译的 debugger_native_api.mm 使用）
+#include "../debugger/debugger_types.h"
+
 enum LogLevel
 {
     LOG_ERROR = 1,
@@ -190,5 +193,36 @@ extern "C" uint32_t get_trace_file_entry_count_native();
 extern "C" void request_script_trace_stop_native(bool notify_ui);
 extern "C" void clear_script_trace_stop_request_native();
 extern "C" bool is_script_trace_stop_requested_native();
+
+// ==================== Debugger native API (debugger_native_api.mm) ====================
+// 这些实现现在是独立编译单元；SSDebugger.mm 通过本头文件拿到声明。
+extern "C" bool debugger_new(pid_t pid);
+extern "C" kern_return_t set_watchpoint_native(mach_vm_address_t address, int size,
+                                               WatchpointType type);
+extern "C" kern_return_t remove_watchpoint_native(mach_vm_address_t address);
+extern "C" kern_return_t set_breakpoint_native(mach_vm_address_t address, int hit_count,
+                                               bool is_software, mach_vm_address_t end_address);
+extern "C" kern_return_t remove_breakpoint_native(mach_vm_address_t address);
+extern "C" bool get_software_breakpoint_original_bytes_native(uint64_t address, uint8_t *out_bytes,
+                                                              size_t *out_size);
+extern "C" kern_return_t continue_execution_native(mach_port_t thread_id);
+extern "C" kern_return_t single_step_native(mach_port_t thread_id);
+extern "C" kern_return_t read_register_native(mach_port_t thread_id, const char *reg_name,
+                                              uint64_t *value);
+extern "C" kern_return_t write_register_native(mach_port_t thread_id, const char *reg_name,
+                                               uint64_t value);
+extern "C" bool is_in_break_state_native();
+extern "C" bool is_trace_ended_by_end_address_native();
+extern "C" void reset_trace_ended_flag_native();
+extern "C" void enable_full_memory_cache_native(const char *dump_filepath,
+                                                const char *log_filepath);
+extern "C" void disable_full_memory_cache_native();
+extern "C" bool is_full_memory_cache_enabled_native();
+extern "C" bool dump_all_memory_regions_native();
+extern "C" void set_signal_config_native(int signal, bool catch_signal, bool pass_signal);
+extern "C" void get_signal_config_native(int signal, bool *catch_signal, bool *pass_signal);
+extern "C" size_t get_all_signal_configs_native(int *signals, bool *catch_signals,
+                                                bool *pass_signals, size_t max_count);
+extern "C" void remove_signal_config_native(int signal);
 
 #endif

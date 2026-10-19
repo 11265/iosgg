@@ -4,7 +4,7 @@
 
 #import "Modules/Remote/SSRemoteModule.h"
 #import "Services/LogService.h"
-#import "UI/Pages/System/RemoteCallPage.h"
+#import "UI/Pages/Remote/RemoteCallPage.h"
 
 @implementation SSRemoteModule
 

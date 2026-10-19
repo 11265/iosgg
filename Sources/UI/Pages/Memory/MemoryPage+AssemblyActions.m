@@ -4,15 +4,16 @@
 #import "UI/Components/FloatingWindow.h"
 #import "UI/Dialogs/OptionsMenu.h"
 #import "UI/Pages/Record/RecordPage.h"
-#import "Modules/MemoryAnalysis/AIAnalysisService.h"
-#import "Modules/MemoryAnalysis/ARM64Assembler.h"
-#import "Modules/MemoryAnalysis/InstructionBrowser.h"
+#import "Modules/Disassembly/AIAnalysisService.h"
+#import "Modules/Disassembly/ARM64Assembler.h"
+#import "Modules/Disassembly/InstructionBrowser.h"
 #import "Models/DisplayItem.h"
 #import "Services/LogService.h"
 #import "Modules/Debugger/SSDebugger.h"
-#import <mach/mach.h>
+#import "Core/Memory/SSMemoryBridge.h"
 #import <mach-o/dyld.h>
 #import <mach-o/dyld_images.h>
+#import <unistd.h>
 @implementation MemoryPages (AssemblyActions)
 
 - (uint32_t)assembleInstruction:(NSString *)instructionStr atAddress:(uint64_t)address {
@@ -310,16 +311,18 @@
     if (newInstruction.length == 0) return;
     
     uint32_t newMachineCode = [ARM64Assembler assembleInstruction:newInstruction atAddress:address];
-    vm_size_t pageSize = getpagesize();
-    vm_address_t pageAddress = address & ~(pageSize - 1);
-    vm_size_t pageCount = ((address + sizeof(uint32_t) - pageAddress) + pageSize - 1) & ~(pageSize - 1);
+    uint64_t pageSize = (uint64_t)getpagesize();
+    uint64_t pageAddress = address & ~(pageSize - 1);
+    uint64_t pageCount = ((address + sizeof(uint32_t) - pageAddress) + pageSize - 1) & ~(pageSize - 1);
     
-    kern_return_t kret = mach_vm_protect(self.instructionBrowser.task, pageAddress, pageCount, FALSE, VM_PROT_READ | VM_PROT_WRITE | VM_PROT_EXECUTE | VM_PROT_COPY);
+    const bool protectedForWrite = SSMemoryProtect(pageAddress, (size_t)pageCount,
+        SSMemoryProtRead | SSMemoryProtWrite | SSMemoryProtExecute | SSMemoryProtCopy);
     
-    if (kret == KERN_SUCCESS) {
-        kret = mach_vm_write(self.instructionBrowser.task, address, (vm_offset_t)&newMachineCode, sizeof(uint32_t));
-        if (kret == KERN_SUCCESS) {
-            mach_vm_protect(self.instructionBrowser.task, pageAddress, pageCount, FALSE, VM_PROT_READ | VM_PROT_EXECUTE);
+    if (protectedForWrite) {
+        const bool wrote = SSMemoryWrite(address, &newMachineCode, sizeof(uint32_t), NULL);
+        if (wrote) {
+            SSMemoryProtect(pageAddress, (size_t)pageCount,
+                            SSMemoryProtRead | SSMemoryProtExecute);
             NSIndexPath *indexPath = [NSIndexPath indexPathForRow:150 + ((address - self.baseAddress) / 4) inSection:0];
             [self.tableView reloadRowsAtIndexPaths:@[indexPath] withRowAnimation:UITableViewRowAnimationNone];
         }

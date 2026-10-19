@@ -1,12 +1,30 @@
 #ifndef 搜索_H
 #define 搜索_H
 
-#import <stddef.h>
-#import <stdint.h>
-#import <stdbool.h>
-#import <mach/mach.h>
-#import <stdatomic.h>
-#import "Modules/ProcessInfo/ProcessMemory.h"
+/*
+ * 值搜索的公共 C 契约。
+ *
+ * 分层约定（重构后）：
+ *   - 本文件只依赖 C 标准库 / mach 类型，可被 C、Objective-C、C++17 同时包含；
+ *   - 核心算法实现位于 Sources/Core/Algorithms/SSScanCore.cpp（纯 C++17）；
+ *   - 依赖 Foundation 的扫描状态（ScannerState）只在 Objective-C 编译单元里
+ *     通过文件末尾的宏暴露，C++ 核心不会间接把 Foundation 拖进来。
+ */
+
+#include <stddef.h>
+#include <stdint.h>
+#include <stdbool.h>
+
+#if defined(__APPLE__)
+#include <mach/mach.h>
+#else
+/*
+ * 主机侧单元测试（Linux/macOS 之外的 g++）用的最小类型替身。
+ * 这些 typedef 只参与纯算法测试，不会进入 iOS 构建。
+ */
+typedef uint64_t mach_vm_address_t;
+typedef uint64_t mach_vm_size_t;
+#endif
 
 // 数据类型枚举
 typedef enum {
@@ -100,8 +118,8 @@ typedef struct {
 // 内存扫描器结构体
 typedef struct {
     int id;
-    mach_vm_address_t range_start;  
-    mach_vm_address_t range_end;    
+    mach_vm_address_t range_start;
+    mach_vm_address_t range_end;
     void* previous_values;
 } MemoryScanner;
 
@@ -115,7 +133,43 @@ typedef struct {
 // count = 实际回传条数（已按上限截断）；totalCount = 本次命中总数
 typedef void (*SearchResultCallback)(uint64_t* results, size_t count, size_t totalCount, SearchDataType type);
 
-// 向后兼容宏 —— 所有全局状态已封装到 ScannerState 单例
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+// 核心比较函数（实现：Sources/Core/Algorithms/SSScanCore.cpp）
+bool 比较值(const void* current, const void* previous, const void* target, 数据类型 data_type, 对比类型 type);
+
+void 搜索模式二(数值 target, 数据类型 data_type, 对比类型 type);
+void 设置搜索回调(SearchResultCallback callback);
+/// 请求取消正在进行的扫描（下一个块边界生效）
+void 取消搜索(void);
+/// 是否正在扫描（UI 用来禁用按钮/显示进度）
+bool 是否正在扫描(void);
+char* 生成扫描id(void);
+void 清理搜索(void);
+char* 创建临时文件(void);
+void 删除临时文件(const char* path);
+#if defined(__APPLE__)
+bool 是有效内存区域(vm_region_submap_info_data_64_t info);
+#endif
+MemoryScanner* 创建扫描器(void);
+void 释放扫描器(MemoryScanner* scanner);
+size_t 获取类型大小(数据类型 type);
+
+#ifdef __cplusplus
+}
+#endif
+
+#define BLOCK_SIZE (16 * 1024 * 1024)  // 16MB 的块大小
+
+/*
+ * 依赖 Objective-C 运行时的全局状态兼容层。
+ *
+ * 只有 .m/.mm 编译单元会看到这些宏；纯 C++ 核心（.cpp）包含本头文件时
+ * __OBJC__ 未定义，因此不会把 Foundation / ScannerState 拉进核心层。
+ */
+#if defined(__OBJC__)
 #import "Modules/Scanner/ScannerState.h"
 
 #define MEMORY_RANGE_START    ([ScannerState shared].memoryRangeStart)
@@ -136,35 +190,6 @@ typedef void (*SearchResultCallback)(uint64_t* results, size_t count, size_t tot
 #define search_callback         ([ScannerState shared].callback)
 #define 正在扫描                (*[[ScannerState shared] scanningPtr])
 #define 已请求取消              (*[[ScannerState shared] cancelPtr])
-
-// 核心比较函数
-bool 比较值(const void* current, const void* previous, const void* target, 数据类型 data_type, 对比类型 type);
-
-#ifdef __cplusplus
-extern "C" {
-#endif
-
-void 搜索模式二(数值 target, 数据类型 data_type, 对比类型 type);
-void 设置搜索回调(SearchResultCallback callback);
-/// 请求取消正在进行的扫描（下一个块边界生效）
-void 取消搜索(void);
-/// 是否正在扫描（UI 用来禁用按钮/显示进度）
-bool 是否正在扫描(void);
-char* 生成扫描id(void);
-void 清理搜索(void);
-char* 创建临时文件(void);
-void 删除临时文件(const char* path);
-bool 是有效内存区域(vm_region_submap_info_data_64_t info);
-MemoryScanner* 创建扫描器(void);
-void 释放扫描器(MemoryScanner* scanner);
-size_t 获取类型大小(数据类型 type);
-
-
-
-#ifdef __cplusplus
-}
-#endif
-
-#define BLOCK_SIZE (16 * 1024 * 1024)  // 16MB 的块大小
+#endif // __OBJC__
 
 #endif // 搜索_H

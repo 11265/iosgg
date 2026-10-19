@@ -1,3 +1,5 @@
 .theos/
 packages/
+build/
+Build/Core/Sources/
 .DS_Store

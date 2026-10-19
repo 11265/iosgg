@@ -1,6 +1,5 @@
 // 系统框架
-#import <mach/mach.h>
-#import <mach-o/dyld.h>
+#import "Core/Memory/SSMemoryBridge.h"
 
 // 自定义视图控制器
 #import "UI/Pages/Scanner/SearchPage.h"
@@ -16,7 +15,6 @@
 
 // 工具类
 #import "Services/LogService.h"
-#import "Modules/ProcessInfo/ProcessMemory.h"
 #import "External/lz4/lz4.h"
 
 #import "UI/Components/ThemeConfig.h"
@@ -523,10 +521,8 @@ static void searchResultCallback(uint64_t* results, size_t count, size_t totalCo
         uint64_t value = 0;
         
         // 按类型宽度读：u8/i16/i32 在区域末尾读 8 字节会失败
-        mach_vm_size_t outsize = 0;
-        if (mach_vm_read_overwrite(mach_task_self(), addr, width,
-                                   (mach_vm_address_t)&value, &outsize) != KERN_SUCCESS
-            || outsize != width) {
+        size_t outsize = 0;
+        if (!SSMemoryRead(addr, &value, width, &outsize) || outsize != width) {
             value = 0;
         }
         
@@ -573,10 +569,8 @@ static void searchResultCallback(uint64_t* results, size_t count, size_t totalCo
             size_t width = [SSDataTypeUtility widthForType:rec.type];
             
             uint64_t value = 0;
-            mach_vm_size_t outsize = 0;
-            if (mach_vm_read_overwrite(mach_task_self(), rec.address, width,
-                                       (mach_vm_address_t)&value, &outsize) != KERN_SUCCESS
-                || outsize != width) {
+            size_t outsize = 0;
+            if (!SSMemoryRead(rec.address, &value, width, &outsize) || outsize != width) {
                 continue;   // 读不到就保持原样
             }
             if (value == rec.lastValue) continue;   // 没变不刷新

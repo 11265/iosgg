@@ -1,7 +1,7 @@
 #import "UI/Dialogs/EditValueDialog.h"
 #import "Services/LogService.h"
+#import "Core/Memory/SSMemoryBridge.h"
 #import <objc/runtime.h>
-#import <mach/mach.h>
 #import "UI/Pages/Scanner/SearchPage.h"
 #import "UI/Pages/Debugger/TracePage.h"
 #import "UI/Pages/Debugger/TracePage+Debugger.h"
@@ -300,11 +300,11 @@ NSString *const kModifyValueNotification = @"ModifyValueNotification";
 
 - (void)copyValueButtonTapped:(UIButton *)sender {
     NSString *valueString;
-    uint64_t memValue;
-    mach_vm_size_t size = sizeof(uint64_t);
-    mach_vm_address_t address = self.address;
-    mach_vm_size_t outsize;
-    mach_vm_read_overwrite(mach_task_self(), address, size, (mach_vm_address_t)&memValue, &outsize);
+    uint64_t memValue = 0;
+    size_t size = sizeof(uint64_t);
+    uint64_t address = self.address;
+    size_t outsize = 0;
+    SSMemoryRead(address, &memValue, size, &outsize);
     
     // 根据数据类型正确读取和格式化值
     switch(self.dataType) {

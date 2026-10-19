@@ -4,12 +4,12 @@
 #import "UI/Components/ThemeConfig.h"
 #import "UI/Pages/Debugger/AccessPage.h"
 #import "UI/Dialogs/AddRecordDialog.h"
-#import "Modules/MemoryAnalysis/PointerChainParser.h"
+#import "Modules/PointerScan/PointerChainParser.h"
 #import "Services/LogService.h"
 #import "Models/SSRecordStore.h"
 #import "Models/SSDataTypeUtility.h"
-#import <mach/mach.h>
-#import "Models/AccessViewModel.h"
+#import "Core/Memory/SSMemoryBridge.h"
+#import "Modules/Debugger/Access/AccessViewModel.h"
 
 @implementation RecordPage (Actions)
 
@@ -191,8 +191,8 @@
     if (address == 0) return;
     
     uint64_t newValue = [SSDataTypeUtility rawValueFromInput:valueStr type:rec.type];
-    mach_msg_type_number_t writeSize = (mach_msg_type_number_t)[SSDataTypeUtility widthForType:rec.type];
-    mach_vm_write(mach_task_self(), address, (vm_offset_t)&newValue, writeSize);
+    size_t writeSize = [SSDataTypeUtility widthForType:rec.type];
+    SSMemoryWrite(address, &newValue, writeSize, NULL);
 }
 
 - (void)selectButtonTapped:(UIButton *)sender {

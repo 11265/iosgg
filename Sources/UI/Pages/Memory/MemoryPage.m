@@ -2,9 +2,9 @@
 #import "UI/Pages/Memory/MemoryPage+Private.h"
 #import "UI/Pages/Memory/MemoryPage+Batch.h"
 #import "UI/Components/FloatingWindow.h"
-#import "Modules/MemoryAnalysis/InstructionBrowser.h"
+#import "Modules/Disassembly/InstructionBrowser.h"
 #import "Services/LogService.h"
-#import "Modules/MemoryAnalysis/ARM64Assembler.h"
+#import "Modules/Disassembly/ARM64Assembler.h"
 #import "UI/Pages/Record/RecordPage.h"
 
 #import "UI/Components/ThemeConfig.h"

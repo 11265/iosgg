@@ -254,23 +254,6 @@ extern "C" bool send_exception_info(const NativeExceptionInfo* info, pid_t pid) 
     return true;
 }
 
-#pragma mark - DynaDbg Implementation Files
-
-#include "DynaDbg/debugger/debugger_native_api.mm"
-#include "DynaDbg/debugger/debugger_core.mm"
-#include "DynaDbg/debugger/debugger_watchpoint.mm"
-#include "DynaDbg/debugger/debugger_breakpoint.mm"
-#include "DynaDbg/debugger/debugger_exception.mm"
-#include "DynaDbg/debugger/debugger_trace.mm"
-#include "DynaDbg/debugger/debugger_register.mm"
-#include "DynaDbg/debugger/debugger_unwind.mm"
-#include "DynaDbg/core/native_api.mm"
-#include "DynaDbg/core/process_api.mm"
-#include "DynaDbg/core/file_api.mm"
-#include "DynaDbg/common/util.cpp"
-#include "DynaDbg/common/trace_file.cpp"
-#include "DynaDbg/common/arm64_decoder.cpp"
-
 @implementation SSDebugger
 
 + (instancetype)sharedInstance {

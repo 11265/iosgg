@@ -1,6 +1,6 @@
 #import "Modules/Remote/RemoteCallEngine.h"
 #import "Services/LogService.h"
-#import "Modules/ProcessInfo/ProcessMemory.h"
+#import "Core/Platform/ProcessMemory.h"
 #import <pthread.h>
 
 @implementation RemoteCallEngine

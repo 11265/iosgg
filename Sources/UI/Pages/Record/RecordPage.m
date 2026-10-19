@@ -4,13 +4,12 @@
 #import "UI/Pages/Scanner/SearchPage.h"
 #import "UI/Components/FloatingWindow.h"
 #import "UI/Dialogs/AddRecordDialog.h"
-#import "Modules/MemoryAnalysis/PointerChainParser.h"
+#import "Modules/PointerScan/PointerChainParser.h"
 #import "Services/LogService.h"
-#import "Modules/ProcessInfo/ProcessMemory.h"
-#import "Models/AccessViewModel.h"
+#import "Core/Memory/SSMemoryBridge.h"
+#import "Modules/Debugger/Access/AccessViewModel.h"
 #import "Models/SSRecordStore.h"
 #import "Models/SSDataTypeUtility.h"
-#import <mach/mach.h>
 #import "UI/Components/ThemeConfig.h"
 
 // --- RecordCell ---
@@ -303,9 +302,10 @@
             uint64_t rawValue = 0;
             if (!errText) {
                 size_t width = [SSDataTypeUtility widthForType:rec.type];
-                mach_vm_size_t outsize = 0;
-                kern_return_t kr = mach_vm_read_overwrite(mach_task_self(), addressValue, width, (mach_vm_address_t)&rawValue, &outsize);
-                if (kr != KERN_SUCCESS || outsize != width) errText = @"[读取失败]";
+                size_t outsize = 0;
+                if (!SSMemoryRead(addressValue, &rawValue, width, &outsize) || outsize != width) {
+                    errText = @"[读取失败]";
+                }
             }
             
             if (errText) {

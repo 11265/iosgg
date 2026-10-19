@@ -1,15 +1,13 @@
 #import "UI/Pages/Debugger/AccessHitInspectorViewController.h"
 
-#import <mach/mach.h>
-#import <mach/vm_region.h>
 #import <unistd.h>
 #import <stdlib.h>
 
-#import "Modules/ProcessInfo/ProcessMemory.h"
-#import "Models/AccessRecord.h"
+#import "Core/Memory/SSMemoryBridge.h"
+#import "Modules/Debugger/Access/AccessRecord.h"
 #import "Modules/Debugger/SSDebugger.h"
-#import "Modules/MemoryAnalysis/ARM64Assembler.h"
-#import "Modules/MemoryAnalysis/SSInstructionExplainer.h"
+#import "Modules/Disassembly/ARM64Assembler.h"
+#import "Modules/Disassembly/SSInstructionExplainer.h"
 #import "Services/LogService.h"
 #import "Services/SSSymbol.h"
 #import "Services/SSSymbolicator.h"
@@ -418,13 +416,9 @@ static NSArray<NSString *> *SSRegisterNames(void) {
         return nil;
     }
     uint32_t instruction = 0;
-    mach_vm_size_t outsize = 0;
-    kern_return_t kr = mach_vm_read_overwrite(mach_task_self(),
-                                              (mach_vm_address_t)address,
-                                              sizeof(instruction),
-                                              (mach_vm_address_t)&instruction,
-                                              &outsize);
-    if (kr != KERN_SUCCESS || outsize != sizeof(instruction)) {
+    size_t outsize = 0;
+    if (!SSMemoryRead(address, &instruction, sizeof(instruction), &outsize) ||
+        outsize != sizeof(instruction)) {
         return nil;
     }
     return [ARM64Assembler disassemble:instruction atAddress:address];
@@ -662,13 +656,9 @@ static NSArray<NSString *> *SSRegisterNames(void) {
     uint8_t *buffer = (uint8_t *)malloc((size_t)count * 4);
     BOOL bulkRead = NO;
     if (buffer) {
-        mach_vm_size_t outsize = 0;
-        kern_return_t kr = mach_vm_read_overwrite(mach_task_self(),
-                                                  (mach_vm_address_t)start,
-                                                  (mach_vm_size_t)count * 4,
-                                                  (mach_vm_address_t)buffer,
-                                                  &outsize);
-        if (kr == KERN_SUCCESS && outsize >= 4) {
+        size_t outsize = 0;
+        const bool readOK = SSMemoryRead(start, buffer, (size_t)count * 4, &outsize);
+        if (readOK && outsize >= 4) {
             bulkRead = YES;
             NSInteger available = (NSInteger)(outsize / 4);
             for (NSInteger i = 0; i < available; i++) {
@@ -686,13 +676,9 @@ static NSArray<NSString *> *SSRegisterNames(void) {
         for (NSInteger i = 0; i < count; i++) {
             uint64_t address = start + (uint64_t)i * 4;
             uint32_t instruction = 0;
-            mach_vm_size_t outsize = 0;
-            kern_return_t kr = mach_vm_read_overwrite(mach_task_self(),
-                                                      (mach_vm_address_t)address,
-                                                      sizeof(instruction),
-                                                      (mach_vm_address_t)&instruction,
-                                                      &outsize);
-            if (kr == KERN_SUCCESS && outsize == sizeof(instruction)) {
+            size_t outsize = 0;
+            if (SSMemoryRead(address, &instruction, sizeof(instruction), &outsize) &&
+                outsize == sizeof(instruction)) {
                 [lines addObject:[self lineForInstruction:instruction at:address center:center]];
             }
         }
@@ -761,15 +747,11 @@ static NSArray<NSString *> *SSRegisterNames(void) {
     }
     memset(buffer, 0, (size_t)total);
 
-    mach_vm_size_t outsize = 0;
-    kern_return_t kr = mach_vm_read_overwrite(mach_task_self(),
-                                              (mach_vm_address_t)base,
-                                              (mach_vm_size_t)total,
-                                              (mach_vm_address_t)buffer,
-                                              &outsize);
+    size_t outsize = 0;
+    const bool bulkOK = SSMemoryRead(base, buffer, (size_t)total, &outsize);
 
     NSMutableArray<NSDictionary *> *rows = [NSMutableArray arrayWithCapacity:(NSUInteger)kMemoryRowCount];
-    if (kr == KERN_SUCCESS && outsize >= kMemoryBytesPerRow) {
+    if (bulkOK && outsize >= kMemoryBytesPerRow) {
         NSInteger available = (NSInteger)(outsize / kMemoryBytesPerRow);
         for (NSInteger i = 0; i < available; i++) {
             NSData *data = [NSData dataWithBytes:buffer + i * kMemoryBytesPerRow
@@ -780,13 +762,9 @@ static NSArray<NSString *> *SSRegisterNames(void) {
         for (NSInteger i = 0; i < kMemoryRowCount; i++) {
             uint64_t address = base + (uint64_t)i * kMemoryBytesPerRow;
             uint64_t value = 0;
-            mach_vm_size_t rowOutsize = 0;
-            kern_return_t rowKr = mach_vm_read_overwrite(mach_task_self(),
-                                                         (mach_vm_address_t)address,
-                                                         sizeof(value),
-                                                         (mach_vm_address_t)&value,
-                                                         &rowOutsize);
-            if (rowKr == KERN_SUCCESS && rowOutsize == sizeof(value)) {
+            size_t rowOutsize = 0;
+            if (SSMemoryRead(address, &value, sizeof(value), &rowOutsize) &&
+                rowOutsize == sizeof(value)) {
                 NSData *data = [NSData dataWithBytes:&value length:sizeof(value)];
                 [rows addObject:@{@"address": @(address), @"data": data}];
             } else {
@@ -880,30 +858,15 @@ static NSArray<NSString *> *SSRegisterNames(void) {
 }
 
 - (NSString *)protectionTextForAddress:(uint64_t)address {
-    mach_vm_address_t regionAddress = address;
-    mach_vm_size_t regionSize = 0;
-    vm_region_basic_info_data_64_t info;
-    mach_msg_type_number_t count = VM_REGION_BASIC_INFO_COUNT_64;
-    mach_port_t objectName = MACH_PORT_NULL;
-
-    kern_return_t kr = mach_vm_region(mach_task_self(),
-                                      &regionAddress,
-                                      &regionSize,
-                                      VM_REGION_BASIC_INFO_64,
-                                      (vm_region_info_t)&info,
-                                      &count,
-                                      &objectName);
-    if (objectName != MACH_PORT_NULL) {
-        mach_port_deallocate(mach_task_self(), objectName);
-    }
-    if (kr != KERN_SUCCESS) {
+    SSMemoryRegionInfo region = {};
+    if (!SSMemoryRegionAt(address, &region)) {
         return @"??";
     }
 
     NSMutableString *text = [NSMutableString string];
-    [text appendString:(info.protection & VM_PROT_READ) ? @"r" : @"-"];
-    [text appendString:(info.protection & VM_PROT_WRITE) ? @"w" : @"-"];
-    [text appendString:(info.protection & VM_PROT_EXECUTE) ? @"x" : @"-"];
+    [text appendString:region.readable ? @"r" : @"-"];
+    [text appendString:region.writable ? @"w" : @"-"];
+    [text appendString:region.executable ? @"x" : @"-"];
     return text;
 }
 
@@ -913,13 +876,9 @@ static NSArray<NSString *> *SSRegisterNames(void) {
 
 - (uint64_t)readPointerAtAddress:(uint64_t)address {
     uint64_t value = 0;
-    mach_vm_size_t outsize = 0;
-    kern_return_t kr = mach_vm_read_overwrite(mach_task_self(),
-                                              (mach_vm_address_t)address,
-                                              sizeof(value),
-                                              (mach_vm_address_t)&value,
-                                              &outsize);
-    if (kr != KERN_SUCCESS || outsize != sizeof(value)) {
+    size_t outsize = 0;
+    if (!SSMemoryRead(address, &value, sizeof(value), &outsize) ||
+        outsize != sizeof(value)) {
         return 0;
     }
     return value;

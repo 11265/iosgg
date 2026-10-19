@@ -3,10 +3,10 @@
 //
 
 #import "Modules/ProcessInfo/SSProcessInfoModule.h"
-#import "Modules/ProcessInfo/TaskPortManager.h"
+#import "Core/Process/TaskPortManager.h"
 #import "Services/LogService.h"
-#import "UI/Pages/System/ModulePage.h"
-#import "UI/Pages/System/OffsetCalcPage.h"
+#import "UI/Pages/ProcessInfo/ModulePage.h"
+#import "UI/Pages/ProcessInfo/OffsetCalcPage.h"
 
 @implementation SSProcessInfoModule
 

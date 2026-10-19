@@ -4,7 +4,7 @@
 //
 
 #import <Foundation/Foundation.h>
-#import "Core/Module/SSModuleProtocol.h"
+#import "App/Module/SSModuleProtocol.h"
 
 NS_ASSUME_NONNULL_BEGIN
 
